@@ -21,6 +21,15 @@ Each run prints a ranked table and writes `multibagger_report.html` and
 See [docs/MULTIBAGGER.md](docs/MULTIBAGGER.md) for what each stage checks, the
 verdict rules and the options.
 
+## Use it from Claude Code
+
+The repo includes a Claude skill, `.claude/skills/screen-indian-stocks`. Open
+this folder in Claude Code and ask, for example, *"screen these Indian stocks:
+PIDILITIND, ASTRAL, PAGEIND"* or *"run the Stage 1 screen and show me the
+strongest candidates"*. Claude runs the tool, reads the report and summarises
+the BUY / WATCH / REJECT results with the reasoning and the manual checks still
+to do. You can also invoke it directly with `/screen-indian-stocks`.
+
 ## Tests
 
 ```bash
