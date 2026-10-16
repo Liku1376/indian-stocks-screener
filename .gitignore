@@ -5,3 +5,5 @@ __pycache__/
 *.xlsx
 .screener_cache/
 multibagger_report.*
+.multibagger/
+login.json

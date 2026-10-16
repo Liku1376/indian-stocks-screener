@@ -41,6 +41,92 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 
+class LoginRequired(RuntimeError):
+    """Screener will not run a query without a logged-in session."""
+
+
+# ---------------------------------------------------------------- saved login
+#
+# Screener only runs screens for logged-in users. To avoid typing the login
+# every time, ``multibagger_cli.py --save-login`` keeps it in a private file in
+# your home folder (never in the repo or in a skill zip). By default only the
+# session cookie is kept; the password is kept too only if you ask
+# (--remember-password), so an expired session can be renewed automatically.
+
+LOGIN_FILE = os.path.join(os.path.expanduser("~"), ".multibagger", "login.json")
+
+
+def _login_path(path: Optional[str]) -> str:
+    return path or os.environ.get("MULTIBAGGER_LOGIN_FILE") or LOGIN_FILE
+
+
+def save_login(sessionid: str, username: Optional[str] = None, password: Optional[str] = None,
+               path: Optional[str] = None) -> str:
+    """Write the login file readable only by you (folder 0700, file 0600)."""
+    path = _login_path(path)
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    data = {"sessionid": sessionid}
+    if username and password:
+        data.update(username=username, password=password)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.chmod(path, 0o600)  # in case the file already existed with looser permissions
+    return path
+
+
+def load_login(path: Optional[str] = None) -> dict:
+    try:
+        with open(_login_path(path), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def forget_login(path: Optional[str] = None) -> bool:
+    try:
+        os.remove(_login_path(path))
+        return True
+    except OSError:
+        return False
+
+
+def authenticate(client: "ScreenerClient", path: Optional[str] = None) -> str:
+    """Log the client in, using (in order) environment variables, then the saved login.
+
+    Returns a short description of what was used. Raises :class:`LoginRequired`
+    with instructions if there is nothing to log in with.
+    """
+    user, pw = os.environ.get("SCREENER_USERNAME"), os.environ.get("SCREENER_PASSWORD")
+    if user and pw:
+        client.login(user, pw)
+        return "login from environment variables"
+    if os.environ.get("SCREENER_SESSIONID"):
+        return "session from SCREENER_SESSIONID"  # the client already loaded it
+    saved = load_login(path)
+    if saved.get("sessionid"):
+        client.use_session(saved["sessionid"])
+        return "saved login"
+    if saved.get("username") and saved.get("password"):
+        client.login(saved["username"], saved["password"])
+        return "saved login"
+    raise LoginRequired(
+        "Screens need a screener.in login. Run `python multibagger_cli.py --save-login` once in your own "
+        "terminal (it asks for the password there and keeps it in a private file), or set SCREENER_USERNAME "
+        "and SCREENER_PASSWORD as environment variables.")
+
+
+def renew_login(client: "ScreenerClient", path: Optional[str] = None) -> bool:
+    """Log in again from a saved password after the session expired. True if it worked."""
+    saved = load_login(path)
+    if not (saved.get("username") and saved.get("password")):
+        return False
+    sid = client.login(saved["username"], saved["password"])
+    save_login(sid, saved["username"], saved["password"], path)
+    return True
+
+
 # ---------------------------------------------------------------- HTTP client
 
 class ScreenerClient:
@@ -104,8 +190,8 @@ class ScreenerClient:
                 raise
         raise RuntimeError("unreachable")
 
-    def login(self, username: str, password: str) -> None:
-        """Log in so that screen queries (``/screen/raw/``) work."""
+    def login(self, username: str, password: str) -> str:
+        """Log in so that screen queries (``/screen/raw/``) work. Returns the session id."""
         page = self._fetch(BASE + "/login/")
         m = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page)
         if not m:
@@ -113,8 +199,13 @@ class ScreenerClient:
         data = urllib.parse.urlencode({
             "csrfmiddlewaretoken": m.group(1), "username": username, "password": password, "next": "/"}).encode()
         self._fetch(BASE + "/login/", data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
-        if not any(c.name == "sessionid" for c in self.jar):
-            raise RuntimeError("Screener login failed - check SCREENER_USERNAME / SCREENER_PASSWORD")
+        sid = next((c.value for c in self.jar if c.name == "sessionid"), None)
+        if not sid:
+            raise RuntimeError("Screener login failed - check the username and password")
+        return sid
+
+    def use_session(self, sessionid: str) -> None:
+        self._set_cookie("sessionid", sessionid)
 
 
 # ---------------------------------------------------------------- HTML parsing
@@ -402,7 +493,7 @@ def run_screen(client: ScreenerClient, query: str, max_pages: int = 20) -> List[
         html = client.get(url, use_cache=False)
         if "/login/" in html and "Login" in html and "data-row-company-id" not in html and page == 1 \
                 and "/company/" not in html:
-            raise RuntimeError("Screener needs you to be logged in to run screens")
+            raise LoginRequired("Screener did not accept the login (the session may have expired)")
         found = re.findall(r'href="/company/([^/"]+)/(?:consolidated/)?"', html)
         new = [s for s in dict.fromkeys(found) if s not in symbols]
         if not new:

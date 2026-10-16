@@ -337,3 +337,77 @@ def test_cowork_skill_zip_is_self_contained(tmp_path):
     r = subprocess.run([sys.executable, "multibagger_cli.py", "--help"], capture_output=True, text=True,
                        cwd=str(tmp_path / "x" / "screen-indian-stocks"))
     assert r.returncode == 0 and "--stage1" in r.stdout
+
+
+# ---------------------------------------------------------------- saved screener.in login
+
+class FakeClient:
+    def __init__(self):
+        self.logged_in_with, self.session = None, None
+
+    def login(self, user, pw):
+        self.logged_in_with = (user, pw)
+        return "fresh-session"
+
+    def use_session(self, sid):
+        self.session = sid
+
+
+@pytest.fixture
+def clean_login_env(monkeypatch):
+    for k in ("SCREENER_USERNAME", "SCREENER_PASSWORD", "SCREENER_SESSIONID", "MULTIBAGGER_LOGIN_FILE"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_saved_login_is_private_and_session_only_by_default(tmp_path, clean_login_env):
+    from multibagger import screener_web as sw
+    path = str(tmp_path / "home" / ".multibagger" / "login.json")
+    sw.save_login("abc123", path=path)
+    assert oct(os.stat(path).st_mode & 0o777) == "0o600"
+    assert oct(os.stat(os.path.dirname(path)).st_mode & 0o777) == "0o700"
+    assert sw.load_login(path) == {"sessionid": "abc123"}  # no password unless asked
+    # saving again over a file with loose permissions tightens them
+    os.chmod(path, 0o644)
+    sw.save_login("def456", "me@example.com", "secret", path=path)
+    assert oct(os.stat(path).st_mode & 0o777) == "0o600"
+    assert sw.load_login(path)["password"] == "secret"
+    assert sw.forget_login(path) and not os.path.exists(path)
+    assert not sw.forget_login(path) and sw.load_login(path) == {}
+
+
+def test_authenticate_prefers_environment_then_saved_login(tmp_path, monkeypatch, clean_login_env):
+    from multibagger import screener_web as sw
+    path = str(tmp_path / "login.json")
+    c = FakeClient()
+    with pytest.raises(sw.LoginRequired, match="--save-login"):
+        sw.authenticate(c, path)
+    sw.save_login("saved-sid", path=path)
+    assert sw.authenticate(c, path) == "saved login" and c.session == "saved-sid"
+    monkeypatch.setenv("SCREENER_USERNAME", "env@example.com")
+    monkeypatch.setenv("SCREENER_PASSWORD", "envpw")
+    assert "environment" in sw.authenticate(c, path) and c.logged_in_with == ("env@example.com", "envpw")
+
+
+def test_expired_session_renews_only_with_a_saved_password(tmp_path, clean_login_env):
+    from multibagger import screener_web as sw
+    path = str(tmp_path / "login.json")
+    sw.save_login("old", path=path)
+    assert sw.renew_login(FakeClient(), path) is False  # no password saved: cannot renew
+    sw.save_login("old", "me@example.com", "secret", path=path)
+    c = FakeClient()
+    assert sw.renew_login(c, path) is True and c.logged_in_with == ("me@example.com", "secret")
+    assert sw.load_login(path)["sessionid"] == "fresh-session"
+
+
+def test_cli_forget_login_and_save_login_needs_a_terminal(tmp_path, monkeypatch, capsys, clean_login_env):
+    import multibagger_cli
+    from multibagger import screener_web as sw
+    path = str(tmp_path / "login.json")
+    monkeypatch.setenv("MULTIBAGGER_LOGIN_FILE", path)
+    sw.save_login("x", path=path)
+    assert multibagger_cli.main(["--forget-login"]) == 0
+    assert not os.path.exists(path) and "deleted" in capsys.readouterr().out
+    monkeypatch.setattr("sys.stdin", open(os.devnull))  # not a terminal, e.g. run by Claude or a script
+    with pytest.raises(SystemExit) as e:
+        multibagger_cli.main(["--save-login"])
+    assert "own terminal" in str(e.value)

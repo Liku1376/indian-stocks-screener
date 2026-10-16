@@ -11,7 +11,8 @@ It uses only the Python standard library — nothing to install.
 ```bash
 python multibagger_cli.py --symbols PIDILITIND ASTRAL PAGEIND
 python multibagger_cli.py --symbols-file examples/watchlist.txt
-python multibagger_cli.py --stage1          # the guide's Stage 1 screen (needs a Screener login)
+python multibagger_cli.py --save-login    # once: save your screener.in login (private file, asks in your terminal)
+python multibagger_cli.py --stage1          # the guide's Stage 1 screen, using the saved login
 python multibagger_cli.py --excel exports/*.xlsx
 ```
 

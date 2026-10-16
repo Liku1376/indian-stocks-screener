@@ -30,7 +30,7 @@ The tool is bundled with this skill: `multibagger_cli.py` and the `multibagger/`
 
 Save reports where the user can open them: add `-o <workspace folder>/multibagger_report` to the command, and point the user to the resulting `.html` and `.csv` files.
 
-`--stage1` and `--query` need a screener.in login in environment variables, which may not be possible here. If so, do not ask for the password in chat; ask the user to run their screen on screener.in themselves and give you the symbols (or the exported Excel files) to use with `--symbols` or `--excel`.
+`--stage1` and `--query` need a screener.in login. The tool reads it from environment variables or from the file `~/.multibagger/login.json` that the user created with `--save-login` (see section 2). That file lives on the user's computer, not in this skill, so it only helps if this skill runs there. If this session cannot see a saved login or set environment variables, do not ask for the password in chat; ask the user to run their screen on screener.in themselves and give you the symbols (or the exported Excel files) to use with `--symbols` or `--excel`.
 """
 
 

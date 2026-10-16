@@ -8,8 +8,10 @@ Examples
   # A whole list (one symbol per line, or an NSE EQUITY_L.csv with a SYMBOL column):
   python multibagger_cli.py --symbols-file examples/watchlist.txt
 
-  # Let screener.in pick the universe with the guide's Stage 1 query (needs a free login):
-  SCREENER_USERNAME=me@example.com SCREENER_PASSWORD=... python multibagger_cli.py --stage1
+  # Let screener.in pick the universe with the guide's Stage 1 query (needs a free login).
+  # Save your login once (asks in your terminal; kept in a private file), then:
+  python multibagger_cli.py --save-login
+  python multibagger_cli.py --stage1
 
   # Screener "Export to Excel" files you already downloaded:
   python multibagger_cli.py --excel exports/*.xlsx
@@ -43,6 +45,21 @@ def read_symbols(path):
     return [ln.split()[0] for ln in lines]
 
 
+def save_login_interactively(remember_password, delay):
+    """Ask for the login in the terminal (never via chat), check it works, and save it."""
+    import getpass
+    from multibagger.screener_web import ScreenerClient, save_login
+    if not sys.stdin.isatty():
+        sys.exit("--save-login asks for your password, so run it in your own terminal, not through a script or chat.")
+    user = input("screener.in username or email: ").strip()
+    pw = getpass.getpass("screener.in password (hidden): ")
+    sid = ScreenerClient(cache_dir=None, delay=delay).login(user, pw)
+    path = save_login(sid, user if remember_password else None, pw if remember_password else None)
+    print("Login worked and was saved to %s (readable only by you)." % path)
+    print("The password was %s." % ("saved too, so it can renew itself" if remember_password else "not saved"))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_argument_group("where the companies come from (combine freely)")
@@ -65,7 +82,19 @@ def main(argv=None):
     out.add_argument("-o", "--out", default="multibagger_report", help="output path without extension")
     out.add_argument("--json", action="store_true", help="also write full detail as JSON")
     out.add_argument("--show", type=int, default=25, help="rows to print to the console (default 25)")
+    lg = ap.add_argument_group("saved screener.in login (kept in ~/.multibagger/login.json, readable only by you)")
+    lg.add_argument("--save-login", action="store_true", help="ask for your screener.in login once and save it")
+    lg.add_argument("--remember-password", action="store_true",
+                    help="with --save-login: also keep the password so an expired session renews itself")
+    lg.add_argument("--forget-login", action="store_true", help="delete the saved login")
     args = ap.parse_args(argv)
+
+    if args.forget_login:
+        from multibagger.screener_web import forget_login
+        print("Saved login deleted." if forget_login() else "No saved login found.")
+        return 0
+    if args.save_login:
+        return save_login_interactively(args.remember_password, args.delay)
 
     opt = Settings(disc=args.discount / 100, bond=args.gsec / 100, exit_pe=args.exit_pe, min_cap=args.min_cap)
 
@@ -84,16 +113,20 @@ def main(argv=None):
 
     client = None
     if symbols or args.stage1 or args.query:
-        from multibagger.screener_web import ScreenerClient, fetch_company, run_screen
+        from multibagger.screener_web import (LoginRequired, ScreenerClient, authenticate, fetch_company,
+                                              renew_login, run_screen)
         client = ScreenerClient(cache_dir=args.cache or None, delay=args.delay)
         if args.stage1 or args.query:
-            user, pw = os.environ.get("SCREENER_USERNAME"), os.environ.get("SCREENER_PASSWORD")
-            if user and pw:
-                client.login(user, pw)
-            elif not os.environ.get("SCREENER_SESSIONID"):
-                sys.exit("Screens need a screener.in login: set SCREENER_USERNAME and SCREENER_PASSWORD "
-                         "(or SCREENER_SESSIONID).")
-            found = run_screen(client, args.query or STAGE1_QUERY)
+            try:
+                authenticate(client)
+                try:
+                    found = run_screen(client, args.query or STAGE1_QUERY)
+                except LoginRequired:  # saved session expired: renew it if a password was saved
+                    if not renew_login(client):
+                        raise
+                    found = run_screen(client, args.query or STAGE1_QUERY)
+            except (LoginRequired, RuntimeError) as e:
+                sys.exit(str(e))
             print("Screen returned %d companies" % len(found))
             symbols += found
 

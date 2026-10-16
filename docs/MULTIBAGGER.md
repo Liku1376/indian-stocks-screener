@@ -26,15 +26,27 @@ workings) and `multibagger_report.csv` (every metric, for Excel).
 | `--query "..."` | Run your own Screener query instead. Needs a login. |
 | `--excel FILES` | Read Screener **Export to Excel** workbooks you've already downloaded (`exports/*.xlsx`). These carry a few extra lines (receivables, inventory, cash, share count) the public page doesn't. |
 
-Screener only returns query results to logged-in users. For `--stage1` or
-`--query`, set your credentials in the environment (they're only sent to
-screener.in):
+Screener only returns query results to logged-in users. Save your login
+**once**, in your own terminal, and the tool (and Claude) will reuse it:
 
 ```bash
-export SCREENER_USERNAME="you@example.com"
-export SCREENER_PASSWORD="..."
-python multibagger_cli.py --stage1
+python multibagger_cli.py --save-login                      # asks for username and password (hidden), checks them
+python multibagger_cli.py --save-login --remember-password  # also keep the password so an expired session renews itself
+python multibagger_cli.py --stage1                          # now works without asking
+python multibagger_cli.py --forget-login                    # delete it
 ```
+
+* It is kept in `~/.multibagger/login.json`, readable only by you (folder
+  0700, file 0600) — never in the repo or in the Cowork zip. By default only
+  Screener's session cookie is stored, not your password; it expires after a
+  while, and then you run `--save-login` again (or use `--remember-password`).
+* The password is typed into the terminal prompt, never passed on the command
+  line, and the command refuses to run when it isn't a real terminal, so it
+  can't be run through a script or chat.
+* Order of lookup: `SCREENER_USERNAME` + `SCREENER_PASSWORD`, then
+  `SCREENER_SESSIONID`, then the saved file. In a Claude Code **cloud**
+  environment, where there is no persistent home folder, put those variables in
+  the environment's settings instead.
 
 The Stage 1 query (no valuation filter, on purpose):
 

@@ -23,11 +23,13 @@ Match what the user asked for:
 | --- | --- |
 | Specific companies | `python multibagger_cli.py --symbols TCS PIDILITIND` (the code in the screener.in URL) |
 | A list or the whole market | `--symbols-file FILE` (text, one symbol per line, or NSE `EQUITY_L.csv`) |
-| "Find me candidates" | `--stage1` (runs the guide's quality screen on screener.in; needs `SCREENER_USERNAME` and `SCREENER_PASSWORD`, or `SCREENER_SESSIONID`, in the environment) |
+| "Find me candidates" | `--stage1` (runs the guide's quality screen on screener.in; needs a screener.in login, see below) |
 | Their own screen query | `--query "Market Capitalization > 500 AND ..."` (login needed) |
 | Downloaded Excel exports | `--excel exports/*.xlsx` |
 
-If the user gave no input and has no login, use `examples/watchlist.txt` and say so. Never ask the user to paste their password into chat; tell them to set the environment variables.
+If the user gave no input and has no login, use `examples/watchlist.txt` and say so.
+
+**Login for `--stage1` / `--query`.** The tool finds the login itself, in this order: the `SCREENER_USERNAME` + `SCREENER_PASSWORD` environment variables, `SCREENER_SESSIONID`, then the login the user saved earlier in `~/.multibagger/login.json`. Just run the command; if it stops with "Screens need a screener.in login", tell the user to run `python multibagger_cli.py --save-login` once in their own terminal (it asks for the password there, checks it, and saves a private file; add `--remember-password` if they want expired sessions to renew themselves). Never ask for the password in chat, never type it into a command yourself, never write it into any file, and never print or commit `login.json`. `--forget-login` deletes it.
 
 Useful options: `--limit N` (cap the run, sensible for a first try), `--discount 14` (the guide says use 14–15% for moatless businesses, cyclicals and anything under ₹2,000 cr), `--gsec`, `--exit-pe`, `--min-cap`, `--standalone`, `--json`, `-o NAME` (output path). Large runs are slow on purpose (2 s between requests, cached for a day); for more than ~50 symbols run in the background and tell the user.
 
