@@ -309,3 +309,31 @@ def test_symbols_file_reads_nse_csv(tmp_path):
     q = tmp_path / "list.txt"
     q.write_text("# comment\nTCS\n\nINFY  # note\n")
     assert multibagger_cli.read_symbols(str(q)) == ["TCS", "INFY"]
+
+
+# ---------------------------------------------------------------- Cowork packaging
+
+def test_cowork_skill_zip_is_self_contained(tmp_path):
+    import subprocess
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    import build_cowork_skill
+
+    zpath = build_cowork_skill.build(str(tmp_path / "skill.zip"))
+    with zipfile.ZipFile(zpath) as z:
+        names = z.namelist()
+        z.extractall(tmp_path / "x")
+    assert all(n.startswith("screen-indian-stocks/") for n in names)
+    for needed in ("SKILL.md", "multibagger_cli.py", "multibagger/engine.py", "multibagger/screener_web.py",
+                   "docs/MULTIBAGGER.md", "examples/watchlist.txt"):
+        assert "screen-indian-stocks/" + needed in names
+    skill = (tmp_path / "x" / "screen-indian-stocks" / "SKILL.md").read_text(encoding="utf-8")
+    assert skill.startswith("---\nname: screen-indian-stocks\n")
+    assert "git clone" not in skill and "bundled with this skill" in skill
+    # deterministic: building twice gives identical bytes
+    again = build_cowork_skill.build(str(tmp_path / "again.zip"))
+    assert open(zpath, "rb").read() == open(again, "rb").read()
+    # and the bundle runs on its own, without the rest of the repo
+    r = subprocess.run([sys.executable, "multibagger_cli.py", "--help"], capture_output=True, text=True,
+                       cwd=str(tmp_path / "x" / "screen-indian-stocks"))
+    assert r.returncode == 0 and "--stage1" in r.stdout

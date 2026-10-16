@@ -30,6 +30,14 @@ strongest candidates"*. Claude runs the tool, reads the report and summarises
 the BUY / WATCH / REJECT results with the reasoning and the manual checks still
 to do. You can also invoke it directly with `/screen-indian-stocks`.
 
+### Claude Cowork
+
+`cowork/screen-indian-stocks.zip` is a self-contained version of the skill (the
+instructions plus the tool's code, so nothing has to be cloned). In Claude, open
+**Settings → Capabilities → Skills**, upload the zip, and ask Cowork to screen
+some Indian stocks. After changing the code or the skill, rebuild it with
+`python scripts/build_cowork_skill.py`.
+
 ## Tests
 
 ```bash
